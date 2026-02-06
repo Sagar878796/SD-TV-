@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SD TV LIVE</title>
+
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.7.11/controls.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.7.11/shaka-player.ui.min.js"></script>
+
+<style>
+/* ================= NETFLIX BASE ================= */
+*{box-sizing:border-box}
+html,body{
+  margin:0;
+  padding:0;
+  background:#000;
+  color:#fff;
+  font-family:Netflix Sans,system-ui,Arial;
+}
+
+/* ================= HEADER ================= */
+header{
+  position:sticky;
+  top:0;
+  z-index:100;
+  background:linear-gradient(#000,rgba(0,0,0,.5));
+  padding:12px 16px;
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+}
+.logo-text{
+  font-size:22px;
+  font-weight:900;
+}
+.logo-prt{color:#e50914}
+.logo-stream{color:#fff;margin-left:6px}
+
+/* ================= SEARCH ================= */
+#search-bar{
+  width:94%;
+  margin:10px auto;
+  display:none;
+  padding:10px;
+  border-radius:4px;
+  border:none;
+}
+
+/* ================= PLAYER ================= */
+.shaka-video-container{
+  position:relative;
+  width:100%;
+  aspect-ratio:16/9;
+  background:#000;
+}
+
+video{
+  width:100%;
+  height:100%;
+  object-fit:contain;
+  background:#000;
+}
+
+/* overlay gradient */
+.shaka-video-container::after{
+  content:"";
+  position:absolute;
+  inset:0;
+  pointer-events:none;
+  background:
+    linear-gradient(to top,rgba(0,0,0,.7),transparent 40%),
+    linear-gradient(to bottom,rgba(0,0,0,.7),transparent 40%);
+}
+
+/* fullscreen fix */
+.shaka-video-container:fullscreen,
+.shaka-video-container:-webkit-full-screen{
+  width:100vw!important;
+  height:100vh!important;
+}
+
+/* live badge */
+#showStreamBtn{
+  position:absolute;
+  top:12px;
+  left:12px;
+  background:#e50914;
+  padding:6px 10px;
+  border-radius:4px;
+  font-size:12px;
+  color:#fff;
+  z-index:10;
+}
+
+/* ================= FILTER BUTTONS ================= */
+.filter-buttons{
+  display:flex;
+  gap:8px;
+  padding:10px;
+  overflow-x:auto;
+}
+.filter-buttons a{
+  background:#111;
+  color:#fff;
+  padding:6px 14px;
+  border-radius:20px;
+  white-space:nowrap;
+  text-decoration:none;
+  font-size:14px;
+}
+.filter-buttons a.active{
+  background:#e50914;
+}
+
+/* ================= CHANNEL ROW ================= */
+#grid{
+  display:flex;
+  gap:10px;
+  padding:14px;
+  overflow-x:auto;
+}
+.item{
+  min-width:120px;
+  background:#111;
+  border-radius:6px;
+  padding:10px;
+  text-align:center;
+  cursor:pointer;
+  transition:.25s;
+}
+.item:hover{
+  transform:scale(1.1);
+  background:#222;
+}
+.item img{
+  width:80px;
+  height:80px;
+}
+.item div{
+  font-size:12px;
+  margin-top:6px;
+}
+</style>
+</head>
+
+<body>
+
+<header>
+  <div class="logo-text">
+    <span class="logo-prt">SD</span><span class="logo-stream">TV LIVE</span>
+  </div>
+  <div onclick="toggleSearch()">🔍</div>
+</header>
+
+<input id="search-bar" placeholder="Search channels...">
+
+<!-- PLAYER -->
+<div class="shaka-video-container" data-shaka-player>
+  <video autoplay playsinline webkit-playsinline></video>
+  <a href="#" id="showStreamBtn">LIVE</a>
+</div>
+
+<!-- FILTERS -->
+<div class="filter-buttons">
+  <a href="#" id="allBtn" class="active">All</a>
+  <a href="#" id="moviesBtn">Movies</a>
+  <a href="#" id="musicBtn">Music</a>
+  <a href="#" id="sportsBtn">Sports</a>
+</div>
+
+<!-- CHANNEL LIST -->
+<div id="grid"></div>
+
+<script>
+function toggleSearch(){
+  const s=document.getElementById("search-bar");
+  s.style.display=s.style.display==="block"?"none":"block";
+}
+
+const M3U_URL="https://raw.githubusercontent.com/Prtstream820894/prtstreams/refs/heads/main/pr.m3u";
+const grid=document.getElementById("grid");
+const searchBar=document.getElementById("search-bar");
+
+let player,video,streamUrl,drmConfig,cookieHeader;
+let allChannels=[];
+
+document.addEventListener("DOMContentLoaded",async()=>{
+  shaka.polyfill.installAll();
+  video=document.querySelector("video");
+  player=new shaka.Player(video);
+
+  const ui=new shaka.ui.Overlay(player,
+    document.querySelector(".shaka-video-container"),video);
+
+  ui.configure({
+    controlPanelElements:[
+      "play_pause",
+      "time_and_duration",
+      "spacer",
+      "mute",
+      "volume",
+      "quality",
+      "fullscreen"
+    ]
+  });
+
+  /* mobile auto fullscreen */
+  video.addEventListener("play",()=>{
+    if(window.innerWidth<768 && !document.fullscreenElement){
+      document.querySelector(".shaka-video-container")
+        .requestFullscreen().catch(()=>{});
+    }
+  });
+
+  const res=await fetch(M3U_URL);
+  const text=await res.text();
+  const lines=text.split("\n");
+  let current={};
+
+  for(let line of lines){
+    line=line.trim();
+    if(line.startsWith("#EXTINF")){
+      current={};
+      current.name=line.split(",").pop();
+      const logo=line.match(/tvg-logo="([^"]+)"/);
+      current.logo=logo?logo[1]:"";
+    }
+    if(line.startsWith("http") && current.name){
+      current.mpd=line;
+      allChannels.push({...current});
+      createItem(current);
+      current={};
+    }
+  }
+});
+
+function createItem(ch){
+  const d=document.createElement("div");
+  d.className="item";
+  d.innerHTML=`<img src="${ch.logo}"><div>${ch.name}</div>`;
+  d.onclick=()=>loadChannel(ch);
+  grid.appendChild(d);
+}
+
+async function loadChannel(ch){
+  streamUrl=ch.mpd;
+  try{
+    await player.load(streamUrl);
+  }catch(e){console.error(e);}
+}
+
+searchBar.addEventListener("input",()=>{
+  const t=searchBar.value.toLowerCase();
+  grid.innerHTML="";
+  allChannels.filter(c=>c.name.toLowerCase().includes(t))
+    .forEach(createItem);
+});
+</script>
+
+</body>
+</html>
